@@ -218,6 +218,8 @@ html.no-intro .rise{animation-delay:calc(var(--d,0)*.05s);}
 .moto-tick{position:absolute;top:.4rem;right:.45rem;width:15px;height:15px;border-radius:50%;background:var(--gold);display:none;place-items:center;}
 .moto[aria-pressed="true"] .moto-tick{display:grid;}
 .moto.hidden{display:none;}
+.promo-tag{display:inline-block;margin-top:.25rem;padding:.08rem .4rem;border-radius:99px;background:#FFC000;color:#1A1300;font-size:.62rem;font-weight:800;line-height:1.35;letter-spacing:.01em;}
+.promo-old{display:block;font-family:var(--ff-mono);font-size:.62rem;color:var(--txt3);text-decoration:line-through;}
 .no-hits{font-size:var(--t-sm);color:var(--txt3);padding:1rem 0;text-align:center;}
 
 .picked{
@@ -767,9 +769,26 @@ function catalogoValido(cat){
   });
 }
 /* Copia el catálogo sobre MODELS y SCHEMES. Devuelve true si algo cambió. */
+let PROMOS={};
+function promoDe(name){ const p=PROMOS[name]; return p&&p.pct>0?p:null; }
+function promoTag(name){
+  const p=promoDe(name); if(!p) return '';
+  return `<span class="promo-tag">${p.etiqueta||'Promoción'} aplicada −${p.pct}%${p.solo_contado?' (solo contado)':''}</span>`;
+}
+/* Filas de precio: con promo muestra lista original y precio con descuento. */
+function promoFilas(i,listPrice,k){
+  const m=MODELS[i], p=promoDe(m[0]);
+  if(p&&m[3]) return [['Precio de Lista',mxn(m[3]),''],[`${p.etiqueta||'Promoción'} −${p.pct}%`,mxn(listPrice),k]];
+  if(p&&p.solo_contado) return [['Precio de Lista',mxn(listPrice),''],[`${p.etiqueta||'Promoción'} −${p.pct}% solo contado`,mxn(Math.round(listPrice*(1-p.pct/100))),k]];
+  return [['Precio de Lista',mxn(listPrice),'']];
+}
 function aplicarCatalogo(cat){
   const antes=JSON.stringify([MODELS,SCHEMES]);
   MODELS.splice(0,MODELS.length,...cat.modelos.map(([n,p,s])=>[n,p,s]));
+  /* Promociones vigentes (Buen Fin): vienen de Supabase y se apagan solas al desactivar la promo.
+     El descuento se aplica al precio de lista; las de "solo contado" solo se indican. */
+  PROMOS=(cat.promos&&typeof cat.promos==='object')?cat.promos:{};
+  MODELS.forEach(m=>{const p=PROMOS[m[0]]; if(p&&!p.solo_contado&&p.pct>0){ m[3]=m[1]; m[1]=Math.round(m[1]*(1-p.pct/100)); }});
   Object.keys(SCHEMES).forEach(k=>{
     const e=cat.esquemas[k];
     if(!e) return;
@@ -820,7 +839,7 @@ function buildModels(){
     b.type='button'; b.className='moto'; b.setAttribute('aria-pressed','false'); b.dataset.i=i;
     b.innerHTML=`<span class="moto-tick" aria-hidden="true"><svg width="8" height="8" viewBox="0 0 10 8" fill="none" stroke="#19100A" stroke-width="2"><polyline points="1,4 4,7 9,1"/></svg></span>
       <span class="moto-name">${name}</span>
-      <span class="moto-price">${mxn0(price)}</span>`;
+      ${MODELS[i][3]?`<span class="promo-old">${mxn0(MODELS[i][3])}</span>`:''}<span class="moto-price">${mxn0(price)}</span>${promoTag(name)}`;
     b.onclick=()=>pickModel(i);
     grid.appendChild(b);
   });
@@ -844,7 +863,7 @@ function pickModel(i){
   selModel=i;
   const [name,price]=MODELS[i];
   $('pickedName').textContent=name;
-  $('pickedPrice').textContent=mxn0(price);
+  $('pickedPrice').innerHTML=(MODELS[i][3]?`<s style="opacity:.6">${mxn0(MODELS[i][3])}</s> `:'')+mxn0(price)+(promoTag(name)?'<br>'+promoTag(name):'');
   $('picked').classList.add('show');
   $('pickerWrap').style.display='none';
   document.querySelectorAll('.moto').forEach(el=>el.setAttribute('aria-pressed',String(+el.dataset.i===i)));
@@ -984,7 +1003,7 @@ function render(){
   $('qScheme').textContent=sc.label;
   $('qDate').textContent=new Date().toLocaleString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
 
-  const chips=[['Precio de Lista',mxn(listPrice),'']];
+  const chips=promoFilas(selModel,listPrice,'gold');
   if(svcOn&&svcPrice>0) chips.push(['Precio Paquete',mxn(price),'svc']);
   chips.push(['Enganche',pct(dp),'cyan'],['Monto Enganche',mxn(downAmt),'gold'],['A Financiar',mxn(fin),'']);
   $('qChips').innerHTML=chips.map(([l,v,k])=>`
@@ -1156,7 +1175,7 @@ async function download(){
     /* Un solo plazo: la parcialidad manda y el resto de las cifras se reparte
        en exactamente dos filas, en lugar de una tabla de un renglón. */
     const t=terms[0];
-    const datos=[['Precio de Lista',mxn(listPrice),'']];
+    const datos=promoFilas(selModel,listPrice,'#F0A800');
     if(svcOn&&svcPrice>0){
       datos.push(['Servicio preventivo','+'+mxn(svcPrice),'#3DD68C'],['Precio Paquete',mxn(price),'']);
     }
@@ -1191,7 +1210,7 @@ async function download(){
       </div>
       ${pie('Parcialidad '+sc.termUnit.replace(/s$/,'')+' · redondeada al entero más cercano')}`;
   } else {
-    const datos=[['Precio de Lista',mxn(listPrice),'']];
+    const datos=promoFilas(selModel,listPrice,'#F0A800');
     if(svcOn&&svcPrice>0) datos.push(['Precio Paquete',mxn(price),'']);
     datos.push(
       ['Enganche',pct(dp),'#40D4FF'],
